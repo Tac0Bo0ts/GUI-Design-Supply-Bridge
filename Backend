@@ -1,0 +1,79 @@
+# In-memory "database"
+inventory = []
+donations = []
+requests = []
+
+# ----- Inventory functions -----
+def get_inventory():
+    return inventory
+
+def add_inventory(item_name, quantity, description=""):
+    new_id = len(inventory) + 1
+    inventory.append({
+        "id": new_id,
+        "item_name": item_name,
+        "quantity": quantity,
+        "description": description
+    })
+
+def update_inventory(item_id, item_name, quantity, description=""):
+    for item in inventory:
+        if item["id"] == item_id:
+            item["item_name"] = item_name
+            item["quantity"] = quantity
+            item["description"] = description
+            break
+
+def remove_inventory(item_id):
+    global inventory
+    inventory = [item for item in inventory if item["id"] != item_id]
+
+# ----- Donations functions -----
+donations = []
+
+def get_donations():
+    return donations
+
+def add_donation(donor_name, item, amount):
+    new_id = len(donations) + 1
+    donations.append({
+        "id": new_id,
+        "donor_name": donor_name,
+        "item": item,
+        "amount": amount
+    })
+    
+    
+# ----Adding to Inventory Page----
+inventory = []
+
+def get_inventory():
+    return inventory
+
+def add_to_inventory(item, amount):
+    #If it already has something increase the number
+    for i in inventory:
+        if i['item'] == item:
+            i['amount'] += amount 
+            return
+        inventory.append({'item': item, 'amount': amount})
+
+# ----- Requests functions -----
+def get_requests():
+    return requests
+
+def add_request(requester_name, item, quantity):
+    new_id = len(requests) + 1
+    requests.append({
+        "id": new_id,
+        "requester_name": requester_name,
+        "item": item,
+        "quantity": quantity,
+        "status": "pending"
+    })
+
+def update_request_status(request_id, status):
+    for req in requests:
+        if req["id"] == request_id:
+            req["status"] = status
+            break
