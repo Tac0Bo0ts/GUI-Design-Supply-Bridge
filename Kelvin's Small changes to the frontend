@@ -1,0 +1,569 @@
+from Backend import get_inventory, add_inventory, get_donations, add_donation
+
+from kivy.app import App
+from kivy.uix.screenmanager import ScreenManager, Screen
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.label import Label
+from kivy.uix.button import Button
+from kivy.uix.textinput import TextInput
+from kivy.uix.togglebutton import ToggleButton
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.scrollview import ScrollView
+from kivy.lang import Builder
+from kivy.core.window import Window
+from kivy.clock import Clock
+from kivy.properties import BooleanProperty
+from kivy.uix.widget import Widget
+import kivy.utils  # Just in case we need color utils later
+
+# Quick setup for window size - makes it look like mobile on desktop
+Window.size = (400, 600)
+
+# Some KV rules to standardize buttons and labels - keeps things consistent
+Builder.load_string('''
+<CustomButton@Button>:
+    size_hint_y: None
+    height: '40dp'
+    font_size: '14sp'
+<CustomLabel@Label>:
+    size_hint_y: None
+    height: '30dp'
+    font_size: '12sp'
+''')
+
+# Hardcoded password for now - in production, hash this or use secure storage
+DEFAULT_PASSWORD = 'supplybridge'
+
+# Flag to track if password protection is active
+PASSWORD_LOCK_ENABLED = False
+
+# Themes defined as dicts - easy to switch between light/dark
+LIGHT_THEME = {
+    'bg_color': (1, 1, 1, 1),  # White bg
+    'text_color': (0, 0, 0, 1),  # Black text
+    'btn_bg': (0.9, 0.9, 0.9, 1),  # Light gray for buttons
+    'input_bg': (1, 1, 1, 1),  # White for inputs
+    'error_color': (1, 0, 0, 1),  # Red errors
+}
+
+DARK_THEME = {
+    'bg_color': (0.2, 0.2, 0.2, 1),  # Dark bg
+    'text_color': (1, 1, 1, 1),  # White text
+    'btn_bg': (0.9, 0.9, 0.9, 1),  # Same button bg for now
+    'input_bg': (0.25, 0.25, 0.25, 1),  # Dark input
+    'error_color': (1, 0.5, 0.5, 1),  # Lighter red for dark mode
+}
+
+# Function to apply theme everywhere - recursive so it hits all kids
+def apply_theme_recursively(widget, theme):
+    """Goes through widget tree and sets colors based on theme."""
+    # Handle labels
+    if isinstance(widget, Label):
+        widget.color = theme['text_color']
+    # Buttons and toggles
+    if isinstance(widget, (Button, ToggleButton)):
+        widget.color = theme['text_color']
+        widget.background_color = theme['btn_bg']  # Force bg color
+    # Text inputs
+    if isinstance(widget, TextInput):
+        widget.foreground_color = theme['text_color']
+        widget.background_color = theme['input_bg']
+    
+    # Keep going down the tree
+    for child in widget.children:
+        apply_theme_recursively(child, theme)
+
+# Base class for themed screens - handles dark mode prop
+class ThemedWidget(Widget):
+    dark_mode = BooleanProperty(True)  # Starts dark, like the wireframes suggest
+    
+    def __init__(self, **kwargs):
+        super(ThemedWidget, self).__init__(**kwargs)
+        self.apply_theme(True)  # Init with dark
+    
+    def on_dark_mode(self, instance, value):
+        # Pick theme and apply
+        theme = DARK_THEME if value else LIGHT_THEME
+        apply_theme_recursively(self, theme)
+        Window.clearcolor = theme['bg_color']
+    
+    def apply_theme(self, is_dark):
+        self.dark_mode = is_dark  # This triggers the property change
+
+# Login screen - shows welcome and password entry
+class LoginScreen(ThemedWidget, Screen):
+    def __init__(self, **kwargs):
+        super(LoginScreen, self).__init__(**kwargs)
+        self.error_label = None
+        # Main vertical layout with some padding
+        layout = BoxLayout(orientation='vertical', padding=20, spacing=10)
+        
+        # Title label
+        title = Label(text='Welcome to SupplyBridge', font_size='18sp', size_hint_y=None, height='50dp')
+        layout.add_widget(title)
+        
+        # Password field - hidden input
+        self.password_input = TextInput(hint_text='Enter Password', password=True, multiline=False)
+        layout.add_widget(self.password_input)
+        
+        # Error message spot
+        self.error_label = Label(text='', size_hint_y=None, height='30dp')
+        layout.add_widget(self.error_label)
+        
+        # Forgot button
+        forgot_btn = Button(text='Forgot Password?', size_hint_y=None, height='40dp')
+        forgot_btn.bind(on_press=self.go_to_forgot)
+        layout.add_widget(forgot_btn)
+        
+        # Enter button
+        enter_btn = Button(text='Enter', size_hint_y=None, height='50dp')
+        enter_btn.bind(on_press=self.login)
+        layout.add_widget(enter_btn)
+        
+        self.add_widget(layout)
+    
+    # Override to color errors properly
+    def on_dark_mode(self, instance, value):
+        super().on_dark_mode(instance, value)
+        theme = DARK_THEME if value else LIGHT_THEME
+        if self.error_label:
+            self.error_label.color = theme['error_color']
+    
+    # Handle login attempt
+    def login(self, instance):
+        global PASSWORD_LOCK_ENABLED
+        if PASSWORD_LOCK_ENABLED:
+            entered_pass = self.password_input.text
+            if entered_pass == DEFAULT_PASSWORD:
+                # Success - go to dash
+                self.manager.current = 'dashboard'
+                self.password_input.text = ''  # Clear it
+                if self.error_label:
+                    self.error_label.text = ''
+            else:
+                # Fail - show error
+                self.error_label.text = 'Invalid password. Try again.'
+        else:
+            # No lock, straight to dash
+            self.manager.current = 'dashboard'
+            self.password_input.text = ''
+    
+    # Nav to forgot screen
+    def go_to_forgot(self, instance):
+        self.manager.current = 'forgot_password'
+
+# Forgot password - placeholder for email reset
+class ForgotPasswordScreen(ThemedWidget, Screen):
+    def __init__(self, **kwargs):
+        super(ForgotPasswordScreen, self).__init__(**kwargs)
+        layout = BoxLayout(orientation='vertical', padding=20, spacing=10)
+        
+        title = Label(text='Forgot Password?', font_size='18sp', size_hint_y=None, height='50dp')
+        layout.add_widget(title)
+        
+        # Instructions with default hint
+        instr = Label(text='Check email for reset instructions\n(Default: supplybridge)', size_hint_y=None, height='60dp')
+        layout.add_widget(instr)
+        
+        email_input = TextInput(hint_text='Enter Email', multiline=False)
+        layout.add_widget(email_input)
+        
+        submit_btn = Button(text='Submit', size_hint_y=None, height='50dp')
+        layout.add_widget(submit_btn)
+        
+        # Back button
+        back_btn = Button(text='Back to Login', size_hint_y=None, height='40dp')
+        back_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'login'))
+        layout.add_widget(back_btn)
+        
+        self.add_widget(layout)
+
+# Dashboard - sidebar nav, empty content for now
+class DashboardScreen(ThemedWidget, Screen):
+    def __init__(self, **kwargs):
+        super(DashboardScreen, self).__init__(**kwargs)
+        main_layout = BoxLayout(orientation='horizontal')
+        
+        # Sidebar - vertical buttons for nav
+        sidebar = BoxLayout(orientation='vertical', size_hint_x=0.25, spacing=5, padding=5)
+        sidebar.add_widget(Label(text='SupplyBridge', size_hint_y=None, height='40dp', font_size='16sp'))
+        
+        # Nav buttons
+        alerts_btn = Button(text='Critical Alerts')
+        alerts_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'alerts'))
+        sidebar.add_widget(alerts_btn)
+        
+        donations_btn = Button(text='Donations')
+        donations_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'donations'))
+        sidebar.add_widget(donations_btn)
+        
+        inventory_btn = Button(text='Inventory')
+        inventory_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'inventory'))
+        sidebar.add_widget(inventory_btn)
+        
+        requests_btn = Button(text='Request')
+        requests_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'requests'))
+        sidebar.add_widget(requests_btn)
+        
+        distribution_btn = Button(text='Distribution')
+        distribution_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'distribution'))
+        sidebar.add_widget(distribution_btn)
+        
+        settings_btn = Button(text='Settings')
+        settings_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'settings'))
+        sidebar.add_widget(settings_btn)
+        
+        # Exit X button at bottom
+        exit_btn = Button(text='X', size_hint_y=None, height='30dp')
+        exit_btn.bind(on_press=self.go_to_exit)
+        sidebar.add_widget(exit_btn)
+        
+        main_layout.add_widget(sidebar)
+        
+        # Placeholder content
+        content = Label(text='Dashboard', halign='center', valign='middle', text_size=(None, None))
+        main_layout.add_widget(content)
+        
+        self.add_widget(main_layout)
+    
+    def go_to_exit(self, instance):
+        self.manager.current = 'exit_confirm'
+
+# Critical alerts - shows placeholders for totals
+class CriticalAlertsScreen(ThemedWidget, Screen):
+    def __init__(self, **kwargs):
+        super(CriticalAlertsScreen, self).__init__(**kwargs)
+        layout = BoxLayout(orientation='vertical', padding=20, spacing=10)
+        
+        title = Label(text='Critical Alerts', font_size='18sp', size_hint_y=None, height='50dp')
+        layout.add_widget(title)
+        
+        # Placeholder - in real, pull from data
+        alerts_placeholder = Label(text='No alerts at this time.', halign='center', valign='middle', text_size=(None, None))
+        layout.add_widget(alerts_placeholder)
+        
+        back_btn = Button(text='Back to Dashboard', size_hint_y=None, height='40dp')
+        back_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'dashboard'))
+        layout.add_widget(back_btn)
+        
+        self.add_widget(layout)
+
+# Donations list - with add button
+class DonationsScreen(ThemedWidget, Screen):
+    def __init__(self, **kwargs):
+        super(DonationsScreen, self).__init__(**kwargs)
+        layout = BoxLayout(orientation='vertical', padding=20, spacing=10)
+        
+        title = Label(text='Donations', font_size='18sp', size_hint_y=None, height='50dp')
+        layout.add_widget(title)
+        
+        # Placeholder list
+        # Scrollable area for donations
+        self.donations_layout = BoxLayout(orientation='vertical', size_hint_y=None)
+        self.donations_layout.bind(minimum_height=self.donations_layout.setter('height'))
+        
+        scroll = ScrollView()
+        scroll.add_widget(self.donations_layout)
+        layout.add_widget(scroll)
+        
+    #def on_pre_enter(self, *args):
+       # self.refresh_list()
+        
+        add_btn = Button(text='Add Donation', size_hint_y=None, height='50dp')
+        add_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'add_donation'))
+        layout.add_widget(add_btn)
+        
+        back_btn = Button(text='Back to Dashboard', size_hint_y=None, height='40dp')
+        back_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'dashboard'))
+        layout.add_widget(back_btn)
+        
+        self.add_widget(layout)
+        
+# Populate from backend
+    def on_pre_enter(self, *args):
+        self.refresh_list()
+        
+    def refresh_list(self):
+        self.donations_layout.clear_widgets()
+        for d in get_donations():
+            self.donations_layout.add_widget(Label(
+                text=f"{d['donor_name']} - {d['item']} ({d['amount']})",
+                size_hint_y=None,
+                height='30dp'
+            ))
+
+        
+        
+
+# Form to add a donation
+class AddDonationScreen(ThemedWidget, Screen):
+    def __init__(self, **kwargs):
+        super(AddDonationScreen, self).__init__(**kwargs)
+        layout = BoxLayout(orientation='vertical', padding=20, spacing=10)
+        
+        title = Label(text='Add Donation', font_size='18sp', size_hint_y=None, height='50dp')
+        layout.add_widget(title)
+        
+        self.name_input = TextInput(hint_text='Donor Name', multiline=False)
+        layout.add_widget(self.name_input)
+        
+        self.item_input = TextInput(hint_text='Item', multiline=False)
+        layout.add_widget(self.item_input)
+        
+        self.amount_input = TextInput(hint_text='Amount', multiline=False, input_filter='int')
+        layout.add_widget(self.amount_input)
+        
+        submit_btn = Button(text='Submit', size_hint_y=None, height='50dp')
+        submit_btn.bind(on_press=self.submit_donation)
+        layout.add_widget(submit_btn)
+        
+        cancel_btn = Button(text='Cancel', size_hint_y=None, height='50dp')
+        cancel_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'donations'))
+        layout.add_widget(cancel_btn)
+        
+        self.add_widget(layout)
+    
+    def submit_donation(self, *args):
+        name = self.name_input.text
+        item = self.item_input.text
+        amount = int(self.amount_input.text) if self.amount_input.text.isdigit() else 0
+
+    #Call the backend function
+        add_donation(name, item, amount)
+        
+    #add to inventory
+        add_inventory(item, amount)
+
+    # Clear input fields so user can add another donation
+
+        self.manager.current = 'donations'
+
+# Inventory - list with add/reduce
+class InventoryScreen(ThemedWidget, Screen):
+    def __init__(self, **kwargs):
+        super(InventoryScreen, self).__init__(**kwargs)
+        layout = BoxLayout(orientation='vertical', padding=20, spacing=10)
+        
+        title = Label(text='Inventory', font_size='18sp', size_hint_y=None, height='50dp')
+        layout.add_widget(title)
+        
+        # Placeholder
+        self.inventory_layout = BoxLayout(orientation='vertical', size_hint_y = None)
+        self.inventory_layout.bind(minimun_height=self.inventory_layout.setter('height'))
+        
+        scroll = ScrollView()
+        scroll.add_widget(self.inventory_layout)
+        layout.add_widget(back_btn)
+        #inventory_placeholder = Label(text='No inventory items.', halign='center', valign='middle', text_size=(None, None))
+        layout.add_widget(scroll)
+        
+        # Buttons for stock changes
+        btn_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height='50dp', spacing=10)
+        add_btn = Button(text='Add Stock')
+        reduce_btn = Button(text='Reduce Stock')
+        btn_layout.add_widget(add_btn)
+        btn_layout.add_widget(reduce_btn)
+        layout.add_widget(btn_layout)
+        
+        back_btn = Button(text='Back to Dashboard', size_hint_y=None, height='40dp')
+        back_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'dashboard'))
+        layout.add_widget(back_btn)
+        
+        self.add_widget(layout)
+        
+    def on_pre_enter(self, *args):
+        self.refresh_Inventory()
+        
+    def refresh_list(self):
+        self.Inventory_layout.clear_widgets()
+        for d in get_Inventory():
+            self.Inventory_layout.add_widget(Label(
+                text=f"{d['donor_name']} - {d['item']} ({d['amount']})",
+                size_hint_y=None,
+                height='30dp'
+            ))
+
+# Requests - placeholder for accept/decline
+class RequestsScreen(ThemedWidget, Screen):
+    def __init__(self, **kwargs):
+        super(RequestsScreen, self).__init__(**kwargs)
+        layout = BoxLayout(orientation='vertical', padding=20, spacing=10)
+        
+        title = Label(text='Request', font_size='18sp', size_hint_y=None, height='50dp')
+        layout.add_widget(title)
+        
+        # Placeholder
+        requests_placeholder = Label(text='No requests at this time.', halign='center', valign='middle', text_size=(None, None))
+        layout.add_widget(requests_placeholder)
+        
+        back_btn = Button(text='Back to Dashboard', size_hint_y=None, height='40dp')
+        back_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'dashboard'))
+        layout.add_widget(back_btn)
+        
+        self.add_widget(layout)
+
+# Distribution records - placeholder
+class DistributionScreen(ThemedWidget, Screen):
+    def __init__(self, **kwargs):
+        super(DistributionScreen, self).__init__(**kwargs)
+        layout = BoxLayout(orientation='vertical', padding=20, spacing=10)
+        
+        title = Label(text='Distribution', font_size='18sp', size_hint_y=None, height='50dp')
+        layout.add_widget(title)
+        
+        # Placeholder
+        distribution_placeholder = Label(text='No distributions recorded.', halign='center', valign='middle', text_size=(None, None))
+        layout.add_widget(distribution_placeholder)
+        
+        back_btn = Button(text='Back to Dashboard', size_hint_y=None, height='40dp')
+        back_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'dashboard'))
+        layout.add_widget(back_btn)
+        
+        self.add_widget(layout)
+
+# Settings - toggles for features
+class SettingsScreen(ThemedWidget, Screen):
+    def __init__(self, **kwargs):
+        super(SettingsScreen, self).__init__(**kwargs)
+        layout = BoxLayout(orientation='vertical', padding=20, spacing=10)
+        
+        title = Label(text='Settings', font_size='18sp', size_hint_y=None, height='50dp')
+        layout.add_widget(title)
+        
+        # Notification toggle
+        self.notif_toggle = ToggleButton(text='Notifications: On/Off', size_hint_y=None, height='50dp')
+        layout.add_widget(self.notif_toggle)
+        
+        # Dark mode toggle - starts down (dark)
+        self.dark_toggle = ToggleButton(text='Dark Mode: Active/Inactive', size_hint_y=None, height='50dp', state='down')
+        self.dark_toggle.bind(on_press=self.toggle_dark_mode)
+        layout.add_widget(self.dark_toggle)
+        
+        # Password lock toggle
+        self.pass_toggle = ToggleButton(text='Password Lock: On/Off', size_hint_y=None, height='50dp', state='normal')
+        self.pass_toggle.bind(on_press=self.toggle_password)
+        layout.add_widget(self.pass_toggle)
+        
+        clear_btn = Button(text='Clear Data', size_hint_y=None, height='50dp')
+        layout.add_widget(clear_btn)
+        
+        back_btn = Button(text='Back to Dashboard', size_hint_y=None, height='40dp')
+        back_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'dashboard'))
+        layout.add_widget(back_btn)
+        
+        self.add_widget(layout)
+    
+    def toggle_dark_mode(self, instance):
+        # Flip dark mode for all screens
+        is_dark = instance.state == 'down'
+        for screen in self.manager.screens:
+            screen.apply_theme(is_dark)
+    
+    def toggle_password(self, instance):
+        global PASSWORD_LOCK_ENABLED
+        if instance.state == 'down':
+            # Enable - go to setup
+            self.manager.current = 'password_setup'
+            PASSWORD_LOCK_ENABLED = True
+        else:
+            # Disable - no login required anymore
+            PASSWORD_LOCK_ENABLED = False
+
+# Setup new password
+class PasswordSetupScreen(ThemedWidget, Screen):
+    def __init__(self, **kwargs):
+        super(PasswordSetupScreen, self).__init__(**kwargs)
+        layout = BoxLayout(orientation='vertical', padding=20, spacing=10)
+        
+        title = Label(text='Set Password', font_size='18sp', size_hint_y=None, height='50dp')
+        layout.add_widget(title)
+        
+        self.pass1_input = TextInput(hint_text='Enter Password', password=True, multiline=False)
+        layout.add_widget(self.pass1_input)
+        
+        self.pass2_input = TextInput(hint_text='Re-enter Password', password=True, multiline=False)
+        layout.add_widget(self.pass2_input)
+        
+        submit_btn = Button(text='Submit', size_hint_y=None, height='50dp')
+        submit_btn.bind(on_press=self.setup_password)
+        layout.add_widget(submit_btn)
+        
+        back_btn = Button(text='Back', size_hint_y=None, height='40dp')
+        back_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'settings'))
+        layout.add_widget(back_btn)
+        
+        self.add_widget(layout)
+    
+    def setup_password(self, instance):
+        global DEFAULT_PASSWORD, PASSWORD_LOCK_ENABLED
+        pass1 = self.pass1_input.text
+        pass2 = self.pass2_input.text
+        if pass1 == pass2 and pass1:  # Match and not empty
+            DEFAULT_PASSWORD = pass1  # Set it (demo only)
+            PASSWORD_LOCK_ENABLED = True
+            self.manager.current = 'login'  # Back to login with new pass
+        else:
+            # TODO: Show mismatch error
+            pass
+
+# Confirm exit
+class ExitConfirmScreen(ThemedWidget, Screen):
+    def __init__(self, **kwargs):
+        super(ExitConfirmScreen, self).__init__(**kwargs)
+        layout = BoxLayout(orientation='vertical', padding=20, spacing=10)
+        
+        title = Label(text='Would you like to close this application?', font_size='16sp', size_hint_y=None, height='60dp')
+        layout.add_widget(title)
+        
+        # Yes/No buttons
+        btn_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height='50dp', spacing=20)
+        yes_btn = Button(text='Yes', size_hint_x=0.5)
+        yes_btn.bind(on_press=self.exit_app)
+        no_btn = Button(text='No', size_hint_x=0.5)
+        no_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'dashboard'))
+        btn_layout.add_widget(yes_btn)
+        btn_layout.add_widget(no_btn)
+        layout.add_widget(btn_layout)
+        
+        self.add_widget(layout)
+    
+    def exit_app(self, instance):
+        App.get_running_app().stop()
+
+# Main app class
+class SupplyBridgeApp(App):
+    def build(self):
+        sm = ScreenManager()
+        
+        # Add all screens
+        sm.add_widget(LoginScreen(name='login'))
+        sm.add_widget(ForgotPasswordScreen(name='forgot_password'))
+        sm.add_widget(DashboardScreen(name='dashboard'))
+        sm.add_widget(CriticalAlertsScreen(name='alerts'))
+        sm.add_widget(DonationsScreen(name='donations'))
+        sm.add_widget(AddDonationScreen(name='add_donation'))
+        sm.add_widget(InventoryScreen(name='inventory'))
+        sm.add_widget(RequestsScreen(name='requests'))
+        sm.add_widget(DistributionScreen(name='distribution'))
+        sm.add_widget(SettingsScreen(name='settings'))
+        sm.add_widget(PasswordSetupScreen(name='password_setup'))
+        sm.add_widget(ExitConfirmScreen(name='exit_confirm'))
+        
+        # Set dark theme on all
+        for screen in sm.screens:
+            screen.apply_theme(True)
+        
+        # Dark bg
+        Window.clearcolor = DARK_THEME['bg_color']
+        
+        # Start screen based on lock
+        global PASSWORD_LOCK_ENABLED
+        if not PASSWORD_LOCK_ENABLED:
+            sm.current = 'dashboard'
+        else:
+            sm.current = 'login'
+        
+        return sm
+
+# Run the app
+SupplyBridgeApp().run()
